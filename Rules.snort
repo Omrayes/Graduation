@@ -1,0 +1,42 @@
+  GNU nano 6.2                                                                                                       local.rules *                                                                                                              
+# $Id: local.rules,v 1.11 2004/07/23 20:15:44 bmc Exp $
+# ----------------
+#drop icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"PREVENT: RCE Attempt via HTTP Command Execution"; flow:to_server,established; pcre:"/;)
+
+# Change your rule to this:
+#reject icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"REJECTED: ICMP Traffic"; sid:1000019; rev:1;)
+
+
+#alert tcp any any -> $HOME_NET 22 (msg:"SENTRY_SIG: SSH Brute Force Attempt"; flags:S; threshold:type threshold, track by_src, count 5, seconds 60; sid:1000015; rev:1;)
+
+alert ssh any any -> any 22 (msg:"SENTRY_SIG: SSH TEST"; sid:1000065; rev:2;)
+
+
+drop icmp any any -> $HOME_NET any (msg:"IPS DROP: Ping Request Blocked"; itype:8; sid:1000011; rev:1;)
+
+# Alert if ANY large data transfer happens on port 1234
+alert tcp $HOME_NET any -> any 1234 (msg:"DATA EXFILTRATION - Large Transfer on Port 1234"; flow:established,to_server; dsize:>1000; sid:1000005; rev:1;)
+
+#alert tcp $EXTERNAL_NET any -> $HOME_NET 1-1024 (msg:"SCAN: Attempted Low-Rate TCP Port Scan"; flow:stateless; flags: S; threshold: type threshold, track by_src, count 5, seconds 60; sid:1000006; rev:1;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"SCAN: Xmas Tree Scan Attempt Detected"; flow:stateless; flags:FPU; sid:1000007; rev:1;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"MALWARE: Large Outbound Data Transfer on Unknown Port"; flow:to_server,established; dsize: > 2048; flowbits:noalert; sid:1000008; rev:1;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 (msg:"ATTACK: FTP Command Injection Attempt"; flow:to_server,established; content:"site exec"; sid:1000009; rev:1;)
+
+alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"ANOMALY: IP Packet with Suspicious Low TTL (Possible Fuzzer)"; ttl: < 5; sid:1000010; rev:1;)
+
+
+alert  icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"EXTERNAL ICMP PING DETECTED"; sid:1000001; rev:1;)
+
+
+
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"DOS: Excessive ICMP Flood Detected"; flowbits:noalert; threshold:type limit, track by_src, count 100, seconds 1; sid:1000002; rev:1;)
+alert tcp $HOME_NET any -> $HOME_NET any (msg:"SCAN: Portscan detected from internal host"; sid:1000004;)
+
+# LOCAL RULES  1000004
+# ----------------
+# This file intentionally does not come with signatures.  Put your local
+# additions here.
+
