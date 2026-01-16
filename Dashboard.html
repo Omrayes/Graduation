@@ -102,7 +102,6 @@
             text-shadow: 0 0 20px var(--accent-glow);
         }
 
-        /* Status Module */
         .status-box {
             background: rgba(0, 242, 255, 0.05);
             border: 1px solid var(--border);
@@ -127,7 +126,6 @@
             100% { transform: scale(2.5); opacity: 0; }
         }
 
-        /* Stats Blocks */
         .stats-container {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -144,11 +142,9 @@
         }
 
         .stat-card:hover { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
-
         .stat-label { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 10px; }
         .stat-value { font-family: 'JetBrains Mono'; font-size: 2rem; color: var(--text-bright); }
 
-        /* Expanded Data Table */
         .table-wrapper {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -157,7 +153,6 @@
         }
 
         table { width: 100%; border-collapse: collapse; }
-
         th {
             background: rgba(255, 255, 255, 0.03);
             text-align: left;
@@ -175,12 +170,8 @@
         }
 
         tr:hover td { background: rgba(0, 242, 255, 0.03); }
-
-        /* Meta Badges */
         .badge-proto { background: #1e293b; color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
         .badge-port { color: var(--text-dim); font-size: 0.75rem; }
-
-        /* Threat Levels */
         .row-critical { border-left: 4px solid var(--danger); background: rgba(255, 62, 62, 0.05); }
         .text-critical { color: var(--danger); font-weight: bold; }
         .text-warning { color: #fbbf24; }
@@ -206,8 +197,7 @@
         <a href="#" class="nav-link">ML Training</a>
         <a href="#" class="nav-link">Network Map</a>
         <a href="#" class="nav-link">System Settings</a>
-        <a href="/api/download_report" class="nav-link" style="color: var(--accent); border: 1px solid var(--accent); padding: 10px; text-align: center; margin-top: 20px; border-radius: 4px;">Download Report</a><a href="/api/download_report" class="nav-link" style="color: var(--accent); border: 1px solid var(--accent); padding: 10px; text-align: center; margin-top: 20px; border-radius: 4px;">Download Report</a>
-
+        <a href="/api/download_report" class="nav-link" style="color: var(--accent); border: 1px solid var(--accent); padding: 10px; text-align: center; margin-top: 20px; border-radius: 4px;">Download Report</a>
     </div>
 
     <div class="main-content">
@@ -266,7 +256,6 @@
     </div>
 
     <script>
-        // Clock Function
         function updateClock() {
             const now = new Date();
             document.getElementById('clock').innerText = now.toLocaleTimeString();
@@ -290,22 +279,17 @@
 
                 const tbody = document.getElementById('event-log');
                 if (data.alerts && data.alerts.length > 0) {
-                    // Stats
                     const avg = data.alerts.reduce((sum, a) => sum + parseFloat(a.anomaly_score), 0) / data.alerts.length;
                     document.getElementById('avg-score').innerText = avg.toFixed(2);
                     document.getElementById('count-threats').innerText = data.alerts.filter(a => parseFloat(a.anomaly_score) > 0.8).length;
 
-                    // Table
                     tbody.innerHTML = data.alerts.map(alert => {
-                        const score = parseFloat(alert.anomaly_score);
+                        const score = parseFloat(alert.anomaly_score) || 0;
                         const isCritical = score > 0.8;
-
-                        // Surprise: Meta Formatting
-                        // Assuming your API gives src_port, dst_port, and proto.
-                        // If not, it defaults to standard values.
                         const proto = alert.proto || 'TCP';
-                        const s_port = alert.src_port || '80';
-                        const d_port = alert.dst_port || '443';
+                        // Matches the keys from your aggressive python parser
+                        const s_port = alert.src_port || '0';
+                        const d_port = alert.dst_port || '0';
 
                         return `
                             <tr class="${isCritical ? 'row-critical' : ''}">
@@ -316,7 +300,7 @@
                                 <td class="${isCritical ? 'text-critical' : 'text-warning'}">${alert.msg}</td>
                                 <td>
                                     <div style="width:100%; background:rgba(255,255,255,0.05); height:4px; border-radius:2px; margin-bottom:5px;">
-                                        <div style="width:${score * 100}%; background:${isCritical ? 'var(--danger)' : 'var(--accent)'}; height:100%;"></div>
+                                        <div style="width:${score * 100}%; background:${isCritical ? 'var(--danger)' : 'var(--accent)'}; height:100%; box-shadow: 0 0 10px ${isCritical ? 'var(--danger-glow)' : 'var(--accent-glow)'};"></div>
                                     </div>
                                     ${(score * 100).toFixed(1)}%
                                 </td>
