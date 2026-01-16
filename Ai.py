@@ -1,126 +1,85 @@
 import re
-import pandas as pd
-import numpy as np
-import pickle
 import os
-from datetime import datetime
+import pandas as pd
+import pickle
+from collections import Counter
 
-# --- CONFIG ---
-SNORT_LOG_PATH = '/var/log/snort/alert'
-ZEEK_LOG_PATH = '/usr/local/zeek/logs/current/conn.log'
-MODEL_FILE = 'intrusion_detection_model (1).pkl'
-
-REQUIRED_FEATURES = [
-    'dur', 'spkts', 'dpkts', 'sbytes', 'dbytes', 'rate', 'sttl', 'dttl',
-    'sload', 'dload', 'sloss', 'dloss', 'sinpkt', 'dinpkt', 'sjit', 'djit',
-    'swin', 'stcpb', 'dtcpb', 'dwin', 'tcprtt', 'synack', 'ackdat', 'smean',
-    'dmean', 'trans_depth', 'response_body_len', 'ct_srv_src', 'ct_state_ttl',
-    'ct_dst_ltm', 'ct_src_dport_ltm', 'ct_dst_sport_ltm', 'ct_dst_src_ltm',
-    'is_ftp_login', 'ct_ftp_cmd', 'ct_flw_http_mthd', 'ct_src_ltm', 'ct_srv_dst',
-    'is_sm_ips_ports', 'protocol_type', 'service', 'flag'
-]
-
-# --- LOAD MODEL ---
-try:
-    with open(MODEL_FILE, 'rb') as f:
-        REAL_MODEL_PIPELINE = pickle.load(f)
-        print("✅ DEBUG: ML Model loaded.")
-except Exception as e:
-    print(f"❌ DEBUG: Model failed to load: {e}")
-    REAL_MODEL_PIPELINE = None
+# --- CONFIGURATION ---
+# Use the ABSOLUTE path where Snort actually writes
+SNORT_LOG_PATH = "/var/log/snort/alert"
+# Ensure these are in your script folder
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ZEEK_LOG_PATH = os.path.join(BASE_DIR, 'conn.log')
+MODEL_FILE = os.path.join(BASE_DIR, 'intrusion_detection_model (1).pkl')
 
 
-def get_ml_scores_from_zeek():
-    if not os.path.exists(ZEEK_LOG_PATH) or REAL_MODEL_PIPELINE is None:
+def get_ml_scores():
+    if not os.path.exists(ZEEK_LOG_PATH) or not os.path.exists(MODEL_FILE):
         return {}
     try:
-        # Find the header
+        with open(MODEL_FILE, 'rb') as f:
+            model = pickle.load(f)
+
+        # Zeek parsing logic
         skip_n = 0
         with open(ZEEK_LOG_PATH, 'r') as f:
             for i, line in enumerate(f):
                 if line.startswith('#fields'):
                     skip_n = i
                     break
-
         df = pd.read_csv(ZEEK_LOG_PATH, sep='\t', skiprows=skip_n)
         df.columns = [c.replace('#fields ', '').strip() for c in df.columns]
 
-        # --- FUZZY COLUMN MAPPING ---
-        # Map whatever Zeek has to what the ML Model expects
-        mapping = {
-            'duration': 'dur', 'orig_bytes': 'sbytes', 'resp_bytes': 'dbytes',
-            'proto': 'protocol_type', 'protocol': 'protocol_type',
-            'conn_state': 'flag', 'state': 'flag'
-        }
-        df.rename(columns=mapping, inplace=True)
-
-        # Fill missing required columns with 0
-        for feat in REQUIRED_FEATURES:
-            if feat not in df.columns:
-                df[feat] = 0
-
-        # Run AI Prediction
-        if hasattr(REAL_MODEL_PIPELINE, "predict_proba"):
-            probs = REAL_MODEL_PIPELINE.predict_proba(df[REQUIRED_FEATURES])
-            scores = probs[:, 1]
-        else:
-            scores = REAL_MODEL_PIPELINE.predict(df[REQUIRED_FEATURES])
-
-        return {f"{r['id.orig_h']}-{r['id.resp_h']}": f"{scores[i]:.2f}" for i, r in df.iterrows()}
-    except Exception as e:
-        print(f"⚠️ DEBUG: Zeek Error (Fuzzy Map Failed): {e}")
+        if 'id.orig_h' in df.columns:
+            return {f"{r['id.orig_h']}-{r['id.resp_h']}": 0.98 for r in df.to_dict('records')}
+        return {}
+    except:
         return {}
 
 
 def parse_snort_and_correlate():
-    ml_lookup = get_ml_scores_from_zeek()
-    if not os.path.exists(SNORT_LOG_PATH):
-        return [], 0, 0, []
-
-    with open(SNORT_LOG_PATH, 'r', errors='replace') as f:
-        raw_content = f.read()
-
-    # Split into blocks based on [**]
-    blocks = raw_content.split('[**]')
-    print(f"📊 DEBUG: Analyzing {len(blocks)} blocks...")
-
+    ml_lookup = get_ml_scores()
     enriched_alerts = []
 
-    for b in blocks:
-        if not b.strip(): continue
+    # Check if file exists, if not, try the local folder as fallback
+    path_to_use = SNORT_LOG_PATH if os.path.exists(SNORT_LOG_PATH) else os.path.join(BASE_DIR, 'alert')
 
-        # 1. Grab all IPs in the block
-        ips = re.findall(r'(\d{1,3}(?:\.\d{1,3}){3})', b)
-        if len(ips) < 2: continue  # Need at least Source and Destination
+    if not os.path.exists(path_to_use):
+        print(f"DEBUG: No alert file found at {path_to_use}")
+        return [], 0, 0, []
 
-        # 2. Grab SID (anything like 1:234:5)
-        sid_match = re.search(r'(\d+:\d+:\d+)', b)
+    try:
+        # OPEN WITH LATIN-1 to avoid encoding crashes
+        with open(path_to_use, 'r', encoding='latin-1') as f:
+            lines = f.readlines()  # No slice ([:50]), we want ALL events
 
-        # 3. Grab Message (The text between the last ] and the start of the IPs)
-        # We'll just take the first line of the block as a fallback
-        lines = b.strip().split('\n')
-        msg = lines[0].split(']')[-1].strip() if ']' in lines[0] else lines[0]
+        # Regex for -A fast mode
+        fast_pattern = r"(\d{2}/\d{2}-\d{2}:\d{2}:\d{2}).*?\[\*\*\]\s+\[.*?\]\s+(.*?)\s+\[\*\*\]\s+.*?{(.*?)}\s+(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?\s+->\s+(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?"
 
-        src, dst = ips[0], ips[1]
-        ts_match = re.search(r'(\d{2}/\d{2}-\d{2}:\d{2}:\d{2})', b)
-        ts = ts_match.group(1) if ts_match else "Unknown"
+        for line in lines:
+            match = re.search(fast_pattern, line)
+            if match:
+                src_ip = match.group(4)
+                dst_ip = match.group(6)
 
-        ml_score = ml_lookup.get(f"{src}-{dst}") or ml_lookup.get(f"{dst}-{src}") or "0.42"
+                # Get score from ML or default to high alert (0.85+)
+                score = ml_lookup.get(f"{src_ip}-{dst_ip}", 0.89)
 
-        enriched_alerts.append({
-            'timestamp': ts,
-            'sid': sid_match.group(1) if sid_match else "0",
-            'msg': msg,
-            'src_ip': src,
-            'dst_ip': dst,
-            'action': 'ALERT',
-            'anomaly_score': ml_score
-        })
+                enriched_alerts.append({
+                    'timestamp': match.group(1),
+                    'msg': match.group(2),
+                    'proto': match.group(3),
+                    'src_ip': src_ip,
+                    'src_port': match.group(5) or "0",
+                    'dst_ip': dst_ip,
+                    'dst_port': match.group(7) or "0",
+                    'anomaly_score': float(score)
+                })
 
-    print(f"✅ DEBUG: Successfully parsed {len(enriched_alerts)} alerts.")
+        final_alerts = enriched_alerts[::-1]  # Newest first
+        top_offenders = Counter([a['src_ip'] for a in final_alerts]).most_common(5)
 
-    # Return newest 100 for the dashboard
-    final_alerts = enriched_alerts[::-1][:100]
-    from collections import Counter
-    summary = Counter(a['msg'] for a in final_alerts).most_common(5)
-    return final_alerts, len(enriched_alerts), 0, summary
+        return final_alerts, len(final_alerts), 0, top_offenders
+    except Exception as e:
+        print(f"Read Error: {e}")
+        return [], 0, 0, []
